@@ -1,0 +1,174 @@
+# Azure DevOps Environments Configuration
+# Define deployment environments with approval gates and checks
+
+environments:
+  - name: development
+    description: "Development environment for testing and development"
+    approval:
+      required: false
+      checks:
+        - type: "invokeRestApi"
+          name: "Health Check"
+          timeout: 300
+          retryInterval: 30
+          url: "https://flask-react-app-dev.azurewebsites.net/health"
+          method: "GET"
+          expectedStatus: 200
+    resources:
+      - name: "dev-webapp"
+        type: "Azure Web App"
+        properties:
+          subscriptionId: "your-subscription-id"
+          resourceGroupName: "flask-react-rg"
+          webAppName: "flask-react-app-dev"
+
+  - name: staging
+    description: "Staging environment for pre-production testing"
+    approval:
+      required: true
+      approvers:
+        - "your-team@company.com"
+      checks:
+        - type: "invokeRestApi"
+          name: "Health Check"
+          timeout: 300
+          retryInterval: 30
+          url: "https://flask-react-app-staging.azurewebsites.net/health"
+          method: "GET"
+          expectedStatus: 200
+        - type: "invokeRestApi"
+          name: "API Health Check"
+          timeout: 300
+          retryInterval: 30
+          url: "https://flask-react-app-staging.azurewebsites.net/api/health"
+          method: "GET"
+          expectedStatus: 200
+        - type: "invokeRestApi"
+          name: "Database Connection Test"
+          timeout: 300
+          retryInterval: 30
+          url: "https://flask-react-app-staging.azurewebsites.net/api/health/database"
+          method: "GET"
+          expectedStatus: 200
+    resources:
+      - name: "staging-webapp"
+        type: "Azure Web App"
+        properties:
+          subscriptionId: "your-subscription-id"
+          resourceGroupName: "flask-react-rg"
+          webAppName: "flask-react-app-staging"
+
+  - name: production
+    description: "Production environment for live application"
+    approval:
+      required: true
+      approvers:
+        - "devops-team@company.com"
+        - "tech-lead@company.com"
+      checks:
+        - type: "invokeRestApi"
+          name: "Health Check"
+          timeout: 600
+          retryInterval: 30
+          url: "https://flask-react-app-prod.azurewebsites.net/health"
+          method: "GET"
+          expectedStatus: 200
+        - type: "invokeRestApi"
+          name: "API Health Check"
+          timeout: 600
+          retryInterval: 30
+          url: "https://flask-react-app-prod.azurewebsites.net/api/health"
+          method: "GET"
+          expectedStatus: 200
+        - type: "invokeRestApi"
+          name: "Database Connection Test"
+          timeout: 600
+          retryInterval: 30
+          url: "https://flask-react-app-prod.azurewebsites.net/api/health/database"
+          method: "GET"
+          expectedStatus: 200
+        - type: "invokeRestApi"
+          name: "Redis Connection Test"
+          timeout: 600
+          retryInterval: 30
+          url: "https://flask-react-app-prod.azurewebsites.net/api/health/redis"
+          method: "GET"
+          expectedStatus: 200
+        - type: "invokeRestApi"
+          name: "Performance Test"
+          timeout: 600
+          retryInterval: 30
+          url: "https://flask-react-app-prod.azurewebsites.net/api/health/performance"
+          method: "GET"
+          expectedStatus: 200
+    resources:
+      - name: "prod-webapp"
+        type: "Azure Web App"
+        properties:
+          subscriptionId: "your-subscription-id"
+          resourceGroupName: "flask-react-rg"
+          webAppName: "flask-react-app-prod"
+
+# Environment-specific configurations
+environment_configs:
+  development:
+    auto_deploy: true
+    notification_channels:
+      - slack: "#dev-deployments"
+      - email: "dev-team@company.com"
+    monitoring:
+      enabled: true
+      alert_rules:
+        - name: "High Error Rate"
+          threshold: 5
+          duration: "5m"
+        - name: "High Response Time"
+          threshold: 2000
+          duration: "10m"
+    
+  staging:
+    auto_deploy: false
+    notification_channels:
+      - slack: "#staging-deployments"
+      - email: "qa-team@company.com"
+    monitoring:
+      enabled: true
+      alert_rules:
+        - name: "High Error Rate"
+          threshold: 2
+          duration: "3m"
+        - name: "High Response Time"
+          threshold: 1500
+          duration: "5m"
+    testing:
+      smoke_tests: true
+      integration_tests: true
+      performance_tests: false
+    
+  production:
+    auto_deploy: false
+    notification_channels:
+      - slack: "#production-deployments"
+      - email: "ops-team@company.com"
+      - pagerduty: "production-alerts"
+    monitoring:
+      enabled: true
+      alert_rules:
+        - name: "High Error Rate"
+          threshold: 1
+          duration: "2m"
+        - name: "High Response Time"
+          threshold: 1000
+          duration: "3m"
+        - name: "Service Down"
+          threshold: 0
+          duration: "1m"
+    testing:
+      smoke_tests: true
+      integration_tests: true
+      performance_tests: true
+      security_tests: true
+    backup:
+      enabled: true
+      frequency: "daily"
+      retention: "30 days"

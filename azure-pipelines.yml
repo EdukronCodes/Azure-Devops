@@ -1,0 +1,332 @@
+# Azure DevOps Pipeline for Flask + React Project
+# Multi-stage pipeline with build, test, and deployment
+
+trigger:
+  branches:
+    include:
+    - main
+    - develop
+  paths:
+    exclude:
+    - README.md
+    - .gitignore
+
+pr:
+  branches:
+    include:
+    - main
+    - develop
+
+variables:
+  # Build Configuration
+  buildConfiguration: 'Release'
+  pythonVersion: '3.11'
+  nodeVersion: '18.x'
+  
+  # Docker Configuration
+  dockerRegistry: 'your-acr.azurecr.io'
+  imageRepository: 'flask-react-app'
+  containerRegistry: 'your-acr'
+  
+  # Azure Configuration
+  azureSubscription: 'your-azure-subscription'
+  resourceGroupName: 'your-rg'
+  webAppName: 'your-webapp'
+  
+  # Environment Configuration
+  environment: 'production'
+
+stages:
+- stage: Build
+  displayName: 'Build Stage'
+  jobs:
+  - job: BuildJob
+    displayName: 'Build Applications'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    # Checkout code
+    - checkout: self
+      fetchDepth: 0
+    
+    # Setup Python
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+      displayName: 'Setup Python $(pythonVersion)'
+    
+    # Setup Node.js
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '$(nodeVersion)'
+      displayName: 'Setup Node.js $(nodeVersion)'
+    
+    # Cache dependencies
+    - task: Cache@2
+      inputs:
+        key: 'pip | "$(Agent.OS)" | **/requirements.txt'
+        restoreKeys: |
+          pip | "$(Agent.OS)"
+        path: '$(Pipeline.Workspace)/.cache/pip'
+      displayName: 'Cache Python dependencies'
+    
+    - task: Cache@2
+      inputs:
+        key: 'npm | "$(Agent.OS)" | **/package-lock.json'
+        restoreKeys: |
+          npm | "$(Agent.OS)"
+        path: '$(Pipeline.Workspace)/.cache/npm'
+      displayName: 'Cache Node.js dependencies'
+    
+    # Install Python dependencies
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+        pip install -r backend/requirements-dev.txt
+      displayName: 'Install Python dependencies'
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+    
+    # Install Node.js dependencies
+    - script: |
+        npm ci
+        npm run build
+      displayName: 'Install Node.js dependencies and build'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/frontend'
+    
+    # Run Python linting
+    - script: |
+        flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 backend/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      displayName: 'Python linting'
+    
+    # Run JavaScript linting
+    - script: |
+        npm run lint
+      displayName: 'JavaScript linting'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/frontend'
+    
+    # Run Python tests
+    - script: |
+        python -m pytest backend/tests/ -v --cov=backend --cov-report=xml --cov-report=html
+      displayName: 'Run Python tests'
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+    
+    # Run JavaScript tests
+    - script: |
+        npm run test:coverage
+      displayName: 'Run JavaScript tests'
+      workingDirectory: '$(System.DefaultWorkingDirectory)/frontend'
+    
+    # Publish test results
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '**/test-results.xml'
+        mergeTestResults: true
+        testRunTitle: 'Test Results'
+      condition: always()
+    
+    # Publish code coverage
+    - task: PublishCodeCoverageResults@1
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: '$(System.DefaultWorkingDirectory)/backend/coverage.xml'
+        reportDirectory: '$(System.DefaultWorkingDirectory)/backend/htmlcov'
+        failIfCoverageEmpty: true
+      condition: always()
+    
+    # Build Docker image
+    - task: Docker@2
+      displayName: 'Build Docker image'
+      inputs:
+        command: 'build'
+        dockerfile: 'Dockerfile'
+        tags: |
+          $(Build.BuildId)
+          latest
+        arguments: '--build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") --build-arg VCS_REF=$(Build.SourceVersion)'
+    
+    # Push Docker image to registry
+    - task: Docker@2
+      displayName: 'Push Docker image'
+      inputs:
+        command: 'push'
+        repository: '$(imageRepository)'
+        tags: |
+          $(Build.BuildId)
+          latest
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+
+- stage: Security
+  displayName: 'Security Scanning'
+  dependsOn: Build
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - job: SecurityJob
+    displayName: 'Security Analysis'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - checkout: self
+    
+    # Setup Python
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+      displayName: 'Setup Python $(pythonVersion)'
+    
+    # Install security tools
+    - script: |
+        pip install bandit safety semgrep
+      displayName: 'Install security tools'
+    
+    # Run security scan for Python
+    - script: |
+        bandit -r backend/ -f json -o bandit-report.json
+        safety check --json --output safety-report.json
+      displayName: 'Run Python security scan'
+      continueOnError: true
+    
+    # Run Semgrep security scan
+    - script: |
+        semgrep --config=auto backend/ --json --output=semgrep-report.json
+      displayName: 'Run Semgrep security scan'
+      continueOnError: true
+    
+    # Run npm audit for Node.js
+    - script: |
+        cd frontend
+        npm audit --audit-level=moderate --json > ../npm-audit-report.json
+      displayName: 'Run npm security audit'
+      continueOnError: true
+    
+    # Publish security results
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: '$(System.DefaultWorkingDirectory)'
+        artifactName: 'security-reports'
+        publishLocation: 'Container'
+      condition: always()
+
+- stage: DeployStaging
+  displayName: 'Deploy to Staging'
+  dependsOn: Security
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
+  jobs:
+  - deployment: DeployStagingJob
+    displayName: 'Deploy to Staging Environment'
+    environment: 'staging'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          # Download build artifacts
+          - download: current
+            artifact: 'drop'
+          
+          # Deploy to Azure App Service (Staging)
+          - task: AzureWebAppContainer@1
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              appName: '$(webAppName)-staging'
+              containers: '$(dockerRegistry)/$(imageRepository):$(Build.BuildId)'
+              appSettings: |
+                -ENVIRONMENT staging
+                -DATABASE_URL $(staging-database-url)
+                -SECRET_KEY $(staging-secret-key)
+          
+          # Run smoke tests
+          - script: |
+              # Wait for deployment to be ready
+              sleep 30
+              # Run basic health checks
+              curl -f https://$(webAppName)-staging.azurewebsites.net/health || exit 1
+              curl -f https://$(webAppName)-staging.azurewebsites.net/api/health || exit 1
+            displayName: 'Run smoke tests'
+
+- stage: DeployProduction
+  displayName: 'Deploy to Production'
+  dependsOn: Security
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - deployment: DeployProductionJob
+    displayName: 'Deploy to Production Environment'
+    environment: 'production'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          # Manual approval for production
+          - task: ManualValidation@0
+            inputs:
+              notifyUsers: |
+                your-team@company.com
+              instructions: 'Please review the deployment and approve for production'
+              timeoutInMinutes: 1440
+          
+          # Download build artifacts
+          - download: current
+            artifact: 'drop'
+          
+          # Deploy to Azure App Service (Production)
+          - task: AzureWebAppContainer@1
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              appName: '$(webAppName)'
+              containers: '$(dockerRegistry)/$(imageRepository):$(Build.BuildId)'
+              appSettings: |
+                -ENVIRONMENT production
+                -DATABASE_URL $(production-database-url)
+                -SECRET_KEY $(production-secret-key)
+          
+          # Run production smoke tests
+          - script: |
+              # Wait for deployment to be ready
+              sleep 60
+              # Run comprehensive health checks
+              curl -f https://$(webAppName).azurewebsites.net/health || exit 1
+              curl -f https://$(webAppName).azurewebsites.net/api/health || exit 1
+              # Run API tests
+              python scripts/production_tests.py
+            displayName: 'Run production smoke tests'
+          
+          # Notify deployment success
+          - task: SlackNotification@1
+            inputs:
+              channel: '#deployments'
+              message: '✅ Production deployment successful for build $(Build.BuildNumber)'
+              webhook: '$(slack-webhook-url)'
+
+- stage: PostDeployment
+  displayName: 'Post-Deployment Tasks'
+  dependsOn: 
+  - DeployStaging
+  - DeployProduction
+  condition: or(succeeded('DeployStaging'), succeeded('DeployProduction'))
+  jobs:
+  - job: PostDeploymentJob
+    displayName: 'Post-Deployment Activities'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    # Update deployment status
+    - script: |
+        echo "Deployment completed successfully"
+        echo "Build ID: $(Build.BuildId)"
+        echo "Source Branch: $(Build.SourceBranch)"
+        echo "Commit: $(Build.SourceVersion)"
+      displayName: 'Update deployment status'
+    
+    # Clean up old Docker images
+    - script: |
+        # Clean up images older than 30 days
+        az acr repository show-tags --name $(containerRegistry) --repository $(imageRepository) --orderby time_desc --query '[].name' -o tsv | tail -n +6 | xargs -I {} az acr repository delete --name $(containerRegistry) --image $(imageRepository):{}
+      displayName: 'Clean up old Docker images'
+      condition: always()

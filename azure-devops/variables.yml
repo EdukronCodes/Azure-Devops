@@ -1,0 +1,111 @@
+# Azure DevOps Pipeline Variables
+# Define all pipeline variables for different environments
+
+variables:
+  # Build Configuration
+  - name: buildConfiguration
+    value: 'Release'
+  - name: pythonVersion
+    value: '3.11'
+  - name: nodeVersion
+    value: '18.x'
+  
+  # Docker Configuration
+  - name: dockerRegistry
+    value: 'your-acr.azurecr.io'
+  - name: imageRepository
+    value: 'flask-react-app'
+  - name: containerRegistry
+    value: 'your-acr'
+  
+  # Azure Configuration
+  - name: azureSubscription
+    value: 'your-azure-subscription'
+  - name: resourceGroupName
+    value: 'your-rg'
+  - name: webAppName
+    value: 'your-webapp'
+  
+  # Environment Configuration
+  - name: environment
+    value: 'production'
+  
+  # Security Configuration
+  - name: secretKey
+    value: 'your-secret-key'
+    isSecret: true
+  
+  # Database Configuration
+  - name: databaseUrl
+    value: 'postgresql://user:pass@host:5432/dbname'
+    isSecret: true
+  
+  # Redis Configuration
+  - name: redisUrl
+    value: 'redis://host:6379/0'
+    isSecret: true
+  
+  # Monitoring Configuration
+  - name: sentryDsn
+    value: 'https://your-sentry-dsn@sentry.io/project'
+    isSecret: true
+  
+  # Notification Configuration
+  - name: slackWebhookUrl
+    value: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+    isSecret: true
+  
+  # Feature Flags
+  - name: enableSecurityScan
+    value: 'true'
+  - name: enablePerformanceTests
+    value: 'true'
+  - name: enableSmokeTests
+    value: 'true'
+
+# Environment-specific variables
+# Development Environment
+- name: dev
+  variables:
+    - name: environment
+      value: 'development'
+    - name: webAppName
+      value: 'flask-react-app-dev'
+    - name: databaseUrl
+      value: 'postgresql://dev-user:dev-pass@dev-host:5432/dev-db'
+      isSecret: true
+    - name: redisUrl
+      value: 'redis://dev-redis:6379/0'
+      isSecret: true
+
+# Staging Environment
+- name: staging
+  variables:
+    - name: environment
+      value: 'staging'
+    - name: webAppName
+      value: 'flask-react-app-staging'
+    - name: databaseUrl
+      value: 'postgresql://staging-user:staging-pass@staging-host:5432/staging-db'
+      isSecret: true
+    - name: redisUrl
+      value: 'redis://staging-redis:6379/0'
+      isSecret: true
+
+# Production Environment
+- name: production
+  variables:
+    - name: environment
+      value: 'production'
+    - name: webAppName
+      value: 'flask-react-app-prod'
+    - name: databaseUrl
+      value: 'postgresql://prod-user:prod-pass@prod-host:5432/prod-db'
+      isSecret: true
+    - name: redisUrl
+      value: 'redis://prod-redis:6379/0'
+      isSecret: true
+    - name: enableSecurityScan
+      value: 'true'
+    - name: requireManualApproval
+      value: 'true'

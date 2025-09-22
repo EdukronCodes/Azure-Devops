@@ -1,0 +1,305 @@
+# Azure Monitoring and Alerting Configuration
+# Comprehensive monitoring setup for Flask + React Application
+
+monitoring_configuration:
+  application_insights:
+    enabled: true
+    components:
+      - name: "flask-react-app"
+        resource_group: "flask-react-rg"
+        location: "East US"
+        retention_days: 90
+        
+    custom_metrics:
+      - name: "response_time_p95"
+        aggregation: "percentile95"
+        sampling_rate: 100
+      - name: "error_rate_percentage"
+        aggregation: "average"
+        sampling_rate: 100
+      - name: "active_users"
+        aggregation: "sum"
+        sampling_rate: 100
+      - name: "api_calls_per_minute"
+        aggregation: "sum"
+        sampling_rate: 100
+        
+    custom_events:
+      - name: "user_login"
+        properties: ["user_id", "login_method"]
+      - name: "api_error"
+        properties: ["endpoint", "error_code", "user_id"]
+      - name: "deployment_completed"
+        properties: ["environment", "version", "deployment_time"]
+
+  log_analytics:
+    enabled: true
+    workspace_name: "flask-react-logs"
+    retention_days: 30
+    data_sources:
+      - "application_logs"
+      - "performance_counters"
+      - "custom_logs"
+      - "azure_activity_logs"
+
+# Alert Rules Configuration
+alert_rules:
+  critical:
+    - name: "Application Down"
+      description: "Application is completely unavailable"
+      metric: "availability"
+      condition: "less than 99%"
+      duration: "5 minutes"
+      severity: 0  # Critical
+      actions:
+        - "email: ops-team@company.com"
+        - "sms: +1234567890"
+        - "pagerduty: production-alerts"
+        
+    - name: "High Error Rate"
+      description: "Error rate exceeds threshold"
+      metric: "requests/failed"
+      condition: "greater than 5%"
+      duration: "5 minutes"
+      severity: 0
+      actions:
+        - "email: dev-team@company.com"
+        - "slack: #alerts"
+        
+    - name: "Database Connection Failed"
+      description: "Database connection issues"
+      metric: "dependencies/failed"
+      condition: "greater than 10%"
+      duration: "3 minutes"
+      severity: 0
+      actions:
+        - "email: dba-team@company.com"
+        - "pagerduty: database-alerts"
+
+  warning:
+    - name: "High Response Time"
+      description: "Application response time is high"
+      metric: "requests/duration"
+      condition: "greater than 2000ms"
+      duration: "10 minutes"
+      severity: 1  # Warning
+      actions:
+        - "email: dev-team@company.com"
+        - "slack: #performance-alerts"
+        
+    - name: "High CPU Usage"
+      description: "Server CPU usage is high"
+      metric: "performanceCounters/processCpuPercentage"
+      condition: "greater than 80%"
+      duration: "10 minutes"
+      severity: 1
+      actions:
+        - "slack: #infrastructure-alerts"
+        
+    - name: "High Memory Usage"
+      description: "Server memory usage is high"
+      metric: "performanceCounters/processWorkingSet"
+      condition: "greater than 85%"
+      duration: "10 minutes"
+      severity: 1
+      actions:
+        - "slack: #infrastructure-alerts"
+        
+    - name: "Slow Database Queries"
+      description: "Database queries are taking too long"
+      metric: "dependencies/duration"
+      condition: "greater than 5000ms"
+      duration: "5 minutes"
+      severity: 1
+      actions:
+        - "email: dba-team@company.com"
+
+  info:
+    - name: "Deployment Completed"
+      description: "New deployment has been completed"
+      metric: "customEvents/deployment_completed"
+      condition: "count greater than 0"
+      duration: "1 minute"
+      severity: 2  # Informational
+      actions:
+        - "slack: #deployments"
+        - "email: dev-team@company.com"
+        
+    - name: "High Traffic Volume"
+      description: "Traffic volume is unusually high"
+      metric: "requests/count"
+      condition: "greater than 10000 per hour"
+      duration: "30 minutes"
+      severity: 2
+      actions:
+        - "slack: #traffic-alerts"
+
+# Dashboard Configuration
+dashboards:
+  executive:
+    name: "Executive Dashboard"
+    widgets:
+      - type: "metric"
+        title: "Application Availability"
+        metric: "availability"
+        time_range: "24h"
+      - type: "metric"
+        title: "Active Users"
+        metric: "users/count"
+        time_range: "24h"
+      - type: "metric"
+        title: "Revenue Impact"
+        metric: "business/kpi"
+        time_range: "7d"
+        
+  operational:
+    name: "Operations Dashboard"
+    widgets:
+      - type: "metric"
+        title: "Response Time Trend"
+        metric: "requests/duration"
+        time_range: "1h"
+      - type: "metric"
+        title: "Error Rate"
+        metric: "requests/failed"
+        time_range: "1h"
+      - type: "metric"
+        title: "CPU Usage"
+        metric: "performanceCounters/processCpuPercentage"
+        time_range: "1h"
+      - type: "metric"
+        title: "Memory Usage"
+        metric: "performanceCounters/processWorkingSet"
+        time_range: "1h"
+      - type: "log"
+        title: "Recent Errors"
+        query: "exceptions | top 10 by timestamp desc"
+        time_range: "1h"
+        
+  development:
+    name: "Development Dashboard"
+    widgets:
+      - type: "metric"
+        title: "API Endpoint Performance"
+        metric: "requests/duration"
+        time_range: "4h"
+        filters: ["name eq 'api/*'"]
+      - type: "metric"
+        title: "Database Performance"
+        metric: "dependencies/duration"
+        time_range: "4h"
+      - type: "log"
+        title: "Application Logs"
+        query: "traces | where severityLevel >= 2"
+        time_range: "4h"
+
+# Log Queries for Common Scenarios
+log_queries:
+  error_analysis:
+    - name: "Top Errors by Count"
+      query: "exceptions | summarize count() by type | top 10 by count_ desc"
+    - name: "Errors by Endpoint"
+      query: "exceptions | summarize count() by url | top 10 by count_ desc"
+    - name: "Error Trend Over Time"
+      query: "exceptions | summarize count() by bin(timestamp, 1h)"
+      
+  performance_analysis:
+    - name: "Slowest Endpoints"
+      query: "requests | summarize avg(duration) by url | top 10 by avg_duration desc"
+    - name: "Response Time Distribution"
+      query: "requests | summarize percentiles(duration, 50, 90, 95, 99) by bin(timestamp, 1h)"
+    - name: "Database Query Performance"
+      query: "dependencies | where type == 'SQL' | summarize avg(duration) by name"
+      
+  user_behavior:
+    - name: "User Activity by Hour"
+      query: "pageViews | summarize count() by bin(timestamp, 1h)"
+    - name: "Most Visited Pages"
+      query: "pageViews | summarize count() by url | top 10 by count_ desc"
+    - name: "User Session Duration"
+      query: "sessions | summarize avg(duration) by bin(timestamp, 1d)"
+
+# Health Checks Configuration
+health_checks:
+  application:
+    - name: "Basic Health Check"
+      url: "/health"
+      expected_status: 200
+      timeout: 30
+      frequency: 60  # seconds
+      
+    - name: "API Health Check"
+      url: "/api/health"
+      expected_status: 200
+      timeout: 30
+      frequency: 60
+      
+    - name: "Database Health Check"
+      url: "/api/health/database"
+      expected_status: 200
+      timeout: 30
+      frequency: 120
+      
+    - name: "Redis Health Check"
+      url: "/api/health/redis"
+      expected_status: 200
+      timeout: 30
+      frequency: 120
+      
+    - name: "External API Check"
+      url: "/api/health/external"
+      expected_status: 200
+      timeout: 60
+      frequency: 300
+
+# Synthetic Monitoring
+synthetic_monitoring:
+  availability_tests:
+    - name: "Homepage Availability"
+      url: "https://your-app.azurewebsites.net"
+      locations: ["East US", "West Europe", "Southeast Asia"]
+      frequency: 300  # 5 minutes
+      
+    - name: "API Availability"
+      url: "https://your-app.azurewebsites.net/api/health"
+      locations: ["East US", "West Europe"]
+      frequency: 300
+      
+  web_tests:
+    - name: "User Journey Test"
+      steps:
+        - action: "navigate"
+          url: "https://your-app.azurewebsites.net"
+        - action: "click"
+          selector: "#login-button"
+        - action: "type"
+          selector: "#username"
+          text: "test-user"
+        - action: "type"
+          selector: "#password"
+          text: "test-password"
+        - action: "click"
+          selector: "#submit-button"
+        - action: "assert"
+          selector: "#dashboard"
+          condition: "visible"
+      locations: ["East US"]
+      frequency: 900  # 15 minutes
+
+# Cost Monitoring
+cost_monitoring:
+  budget_alerts:
+    - name: "Monthly Budget Alert"
+      amount: 1000  # USD
+      threshold_percentages: [50, 75, 90, 100]
+      actions:
+        - "email: finance@company.com"
+        - "slack: #cost-alerts"
+        
+  resource_cost_tracking:
+    - resource_type: "App Service"
+      cost_center: "Engineering"
+    - resource_type: "Database"
+      cost_center: "Data"
+    - resource_type: "Storage"
+      cost_center: "Infrastructure"

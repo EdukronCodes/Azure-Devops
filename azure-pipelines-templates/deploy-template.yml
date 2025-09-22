@@ -1,0 +1,70 @@
+# Azure DevOps Deploy Template
+# Reusable template for deploying applications
+
+parameters:
+- name: environment
+  type: string
+- name: appName
+  type: string
+- name: requiresApproval
+  type: boolean
+  default: false
+- name: runSmokeTests
+  type: boolean
+  default: true
+
+steps:
+# Manual approval for production
+- ${{ if eq(parameters.requiresApproval, true) }}:
+  - task: ManualValidation@0
+    inputs:
+      notifyUsers: |
+        your-team@company.com
+      instructions: 'Please review the deployment and approve for ${{ parameters.environment }}'
+      timeoutInMinutes: 1440
+
+# Download build artifacts
+- download: current
+  artifact: 'drop'
+
+# Deploy to Azure App Service
+- task: AzureWebAppContainer@1
+  inputs:
+    azureSubscription: '$(azureSubscription)'
+    appName: '${{ parameters.appName }}'
+    containers: '$(dockerRegistry)/$(imageRepository):$(Build.BuildId)'
+    appSettings: |
+      -ENVIRONMENT ${{ parameters.environment }}
+      -DATABASE_URL $(database-url-${{ parameters.environment }})
+      -SECRET_KEY $(secret-key-${{ parameters.environment }})
+      -REDIS_URL $(redis-url-${{ parameters.environment }})
+      -SENTRY_DSN $(sentry-dsn-${{ parameters.environment }})
+
+# Run smoke tests
+- ${{ if eq(parameters.runSmokeTests, true) }}:
+  - script: |
+      # Wait for deployment to be ready
+      sleep 30
+      # Run basic health checks
+      curl -f https://${{ parameters.appName }}.azurewebsites.net/health || exit 1
+      curl -f https://${{ parameters.appName }}.azurewebsites.net/api/health || exit 1
+    displayName: 'Run smoke tests for ${{ parameters.environment }}'
+
+# Run comprehensive tests for production
+- ${{ if and(eq(parameters.environment, 'production'), eq(parameters.runSmokeTests, true)) }}:
+  - script: |
+      # Wait for deployment to be ready
+      sleep 60
+      # Run comprehensive health checks
+      curl -f https://${{ parameters.appName }}.azurewebsites.net/health || exit 1
+      curl -f https://${{ parameters.appName }}.azurewebsites.net/api/health || exit 1
+      # Run API tests
+      python scripts/production_tests.py
+    displayName: 'Run production tests'
+
+# Notify deployment success
+- task: SlackNotification@1
+  inputs:
+    channel: '#deployments'
+    message: '✅ ${{ parameters.environment }} deployment successful for build $(Build.BuildNumber)'
+    webhook: '$(slack-webhook-url)'

@@ -1,0 +1,269 @@
+# Azure Scaling Configuration for Flask + React Application
+# Comprehensive scaling strategies for different environments
+
+scaling_configurations:
+  development:
+    app_service:
+      min_instances: 1
+      max_instances: 3
+      default_instances: 1
+      auto_scale_enabled: true
+      scale_out_threshold: 70  # CPU percentage
+      scale_in_threshold: 30   # CPU percentage
+      scale_out_cooldown: 300  # 5 minutes
+      scale_in_cooldown: 600   # 10 minutes
+      
+    container_instances:
+      min_cpu: 0.5
+      max_cpu: 2
+      min_memory: 1  # GB
+      max_memory: 4  # GB
+      
+    database:
+      postgresql:
+        min_cores: 1
+        max_cores: 4
+        auto_scale_enabled: false
+        
+    redis:
+      min_instances: 1
+      max_instances: 2
+      auto_scale_enabled: false
+
+  staging:
+    app_service:
+      min_instances: 2
+      max_instances: 5
+      default_instances: 2
+      auto_scale_enabled: true
+      scale_out_threshold: 60
+      scale_in_threshold: 25
+      scale_out_cooldown: 180  # 3 minutes
+      scale_in_cooldown: 300   # 5 minutes
+      
+    container_instances:
+      min_cpu: 1
+      max_cpu: 4
+      min_memory: 2
+      max_memory: 8
+      
+    database:
+      postgresql:
+        min_cores: 2
+        max_cores: 8
+        auto_scale_enabled: true
+        
+    redis:
+      min_instances: 1
+      max_instances: 3
+      auto_scale_enabled: true
+
+  production:
+    app_service:
+      min_instances: 3
+      max_instances: 20
+      default_instances: 5
+      auto_scale_enabled: true
+      scale_out_threshold: 50
+      scale_in_threshold: 20
+      scale_out_cooldown: 60   # 1 minute
+      scale_in_cooldown: 180   # 3 minutes
+      
+    container_instances:
+      min_cpu: 2
+      max_cpu: 8
+      min_memory: 4
+      max_memory: 16
+      
+    database:
+      postgresql:
+        min_cores: 4
+        max_cores: 16
+        auto_scale_enabled: true
+        read_replicas:
+          min: 1
+          max: 3
+          auto_scale: true
+          
+    redis:
+      min_instances: 2
+      max_instances: 5
+      auto_scale_enabled: true
+      clustering_enabled: true
+
+# Advanced Scaling Metrics
+scaling_metrics:
+  cpu:
+    target_value: 70
+    evaluation_time: 5  # minutes
+    aggregation: average
+    
+  memory:
+    target_value: 80
+    evaluation_time: 5
+    aggregation: average
+    
+  request_rate:
+    target_value: 1000  # requests per minute
+    evaluation_time: 3
+    aggregation: total
+    
+  response_time:
+    target_value: 2000  # milliseconds
+    evaluation_time: 5
+    aggregation: average
+    
+  error_rate:
+    target_value: 5  # percentage
+    evaluation_time: 5
+    aggregation: average
+
+# Load Balancing Configuration
+load_balancing:
+  application_gateway:
+    enabled: true
+    sku: "WAF_v2"
+    capacity:
+      min: 2
+      max: 10
+    health_probes:
+      - name: "app-health"
+        path: "/health"
+        interval: 30
+        timeout: 30
+        unhealthy_threshold: 3
+        healthy_threshold: 2
+      - name: "api-health"
+        path: "/api/health"
+        interval: 30
+        timeout: 30
+        unhealthy_threshold: 3
+        healthy_threshold: 2
+        
+  front_door:
+    enabled: true
+    routing_rules:
+      - name: "api-routing"
+        patterns: ["/api/*"]
+        backend_pools: ["api-backend"]
+        caching: false
+      - name: "static-routing"
+        patterns: ["/static/*", "/*.js", "/*.css"]
+        backend_pools: ["static-backend"]
+        caching: true
+        cache_duration: 3600  # 1 hour
+        
+  cdn:
+    enabled: true
+    profile: "flask-react-cdn"
+    endpoints:
+      - name: "static-assets"
+        origin: "storage-account"
+        path: "/static"
+        caching_rules:
+          - file_extension: [".js", ".css"]
+            caching_behavior: "CacheIfMaxAge"
+            cache_duration: 86400  # 24 hours
+          - file_extension: [".png", ".jpg", ".gif"]
+            caching_behavior: "CacheIfMaxAge"
+            cache_duration: 2592000  # 30 days
+
+# Database Scaling
+database_scaling:
+  postgresql:
+    flexible_server:
+      enabled: true
+      high_availability:
+        enabled: true
+        mode: "ZoneRedundant"
+      backup:
+        geo_redundant: true
+        retention_days: 35
+        
+    read_replicas:
+      auto_scale: true
+      lag_threshold: 100  # milliseconds
+      min_replicas: 1
+      max_replicas: 5
+      
+    connection_pooling:
+      enabled: true
+      max_connections: 100
+      min_connections: 10
+      
+  redis:
+    cluster:
+      enabled: true
+      shard_count: 3
+      replicas_per_shard: 1
+      
+    persistence:
+      enabled: true
+      backup_frequency: "6h"
+      backup_retention: 7  # days
+
+# Storage Scaling
+storage_scaling:
+  blob_storage:
+    tier: "Hot"
+    replication: "GRS"  # Geo-redundant storage
+    lifecycle_policies:
+      - name: "log-archival"
+        prefix: "logs/"
+        transition_to_cool: 30  # days
+        transition_to_archive: 90  # days
+        delete_after: 2555  # 7 years
+        
+  file_share:
+    enabled: true
+    size_gb: 100
+    protocol: "SMB"
+
+# Network Scaling
+network_scaling:
+  vnet_integration:
+    enabled: true
+    subnet_size: "/24"
+    
+  private_endpoints:
+    enabled: true
+    services:
+      - "database"
+      - "redis"
+      - "storage"
+      - "keyvault"
+      
+  dns:
+    private_dns_zones:
+      - "privatelink.postgres.database.azure.com"
+      - "privatelink.redis.cache.windows.net"
+      - "privatelink.blob.core.windows.net"
+      - "privatelink.vaultcore.azure.net"
+
+# Performance Optimization
+performance_optimization:
+  caching:
+    redis:
+      enabled: true
+      default_ttl: 3600  # 1 hour
+      max_memory: "2gb"
+      eviction_policy: "allkeys-lru"
+      
+    application:
+      enabled: true
+      cache_headers:
+        - path: "/static/*"
+          max_age: 86400
+        - path: "/api/public/*"
+          max_age: 3600
+          
+  compression:
+    enabled: true
+    algorithms: ["gzip", "brotli"]
+    min_size: 1024  # bytes
+    
+  cdn_optimization:
+    enabled: true
+    edge_optimization: true
+    image_optimization: true
+    minification: true

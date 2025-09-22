@@ -1,0 +1,147 @@
+# Azure DevOps Build Template
+# Reusable template for building applications
+
+parameters:
+- name: projectPath
+  type: string
+  default: '$(System.DefaultWorkingDirectory)'
+- name: buildConfiguration
+  type: string
+  default: 'Release'
+- name: runTests
+  type: boolean
+  default: true
+- name: runSecurityScan
+  type: boolean
+  default: true
+
+steps:
+# Setup Python
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '$(pythonVersion)'
+  displayName: 'Setup Python $(pythonVersion)'
+
+# Setup Node.js
+- task: NodeTool@0
+  inputs:
+    versionSpec: '$(nodeVersion)'
+  displayName: 'Setup Node.js $(nodeVersion)'
+
+# Cache dependencies
+- task: Cache@2
+  inputs:
+    key: 'pip | "$(Agent.OS)" | **/requirements.txt'
+    restoreKeys: |
+      pip | "$(Agent.OS)"
+    path: '$(Pipeline.Workspace)/.cache/pip'
+  displayName: 'Cache Python dependencies'
+
+- task: Cache@2
+  inputs:
+    key: 'npm | "$(Agent.OS)" | **/package-lock.json'
+    restoreKeys: |
+      npm | "$(Agent.OS)"
+    path: '$(Pipeline.Workspace)/.cache/npm'
+  displayName: 'Cache Node.js dependencies'
+
+# Install Python dependencies
+- script: |
+    python -m pip install --upgrade pip
+    pip install -r backend/requirements.txt
+    pip install -r backend/requirements-dev.txt
+  displayName: 'Install Python dependencies'
+  workingDirectory: '${{ parameters.projectPath }}'
+
+# Install Node.js dependencies and build
+- script: |
+    npm ci
+    npm run build
+  displayName: 'Install Node.js dependencies and build'
+  workingDirectory: '${{ parameters.projectPath }}/frontend'
+
+# Run linting
+- script: |
+    flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics
+    flake8 backend/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+  displayName: 'Python linting'
+
+- script: |
+    npm run lint
+  displayName: 'JavaScript linting'
+  workingDirectory: '${{ parameters.projectPath }}/frontend'
+
+# Run tests
+- ${{ if eq(parameters.runTests, true) }}:
+  - script: |
+      python -m pytest backend/tests/ -v --cov=backend --cov-report=xml --cov-report=html
+    displayName: 'Run Python tests'
+    workingDirectory: '${{ parameters.projectPath }}'
+
+  - script: |
+      npm run test:coverage
+    displayName: 'Run JavaScript tests'
+    workingDirectory: '${{ parameters.projectPath }}/frontend'
+
+  # Publish test results
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/test-results.xml'
+      mergeTestResults: true
+      testRunTitle: 'Test Results'
+    condition: always()
+
+  # Publish code coverage
+  - task: PublishCodeCoverageResults@1
+    inputs:
+      codeCoverageTool: 'Cobertura'
+      summaryFileLocation: '$(System.DefaultWorkingDirectory)/backend/coverage.xml'
+      reportDirectory: '$(System.DefaultWorkingDirectory)/backend/htmlcov'
+      failIfCoverageEmpty: true
+    condition: always()
+
+# Run security scans
+- ${{ if eq(parameters.runSecurityScan, true) }}:
+  - script: |
+      pip install bandit safety semgrep
+    displayName: 'Install security tools'
+
+  - script: |
+      bandit -r backend/ -f json -o bandit-report.json
+      safety check --json --output safety-report.json
+    displayName: 'Run Python security scan'
+    continueOnError: true
+
+  - script: |
+      semgrep --config=auto backend/ --json --output=semgrep-report.json
+    displayName: 'Run Semgrep security scan'
+    continueOnError: true
+
+  - script: |
+      cd frontend
+      npm audit --audit-level=moderate --json > ../npm-audit-report.json
+    displayName: 'Run npm security audit'
+    continueOnError: true
+
+# Build Docker image
+- task: Docker@2
+  displayName: 'Build Docker image'
+  inputs:
+    command: 'build'
+    dockerfile: 'Dockerfile'
+    tags: |
+      $(Build.BuildId)
+      latest
+    arguments: '--build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") --build-arg VCS_REF=$(Build.SourceVersion)'
+
+# Push Docker image
+- task: Docker@2
+  displayName: 'Push Docker image'
+  inputs:
+    command: 'push'
+    repository: '$(imageRepository)'
+    tags: |
+      $(Build.BuildId)
+      latest
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
